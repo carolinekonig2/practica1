@@ -1,0 +1,89 @@
+# Conexión a API de twitter
+library(twitteR)
+library(RCurl)
+library(RJSONIO)
+library(stringr)
+api_key <- "iEwt" # From dev.twitter.com
+api_secret <- "IeWR.." # From dev.twitter.com
+token <- "922.." # From dev.twitter.com
+token_secret <- "Pi.."
+
+setup_twitter_oauth(api_key, api_secret, token, token_secret)
+
+# Recolección de tweets
+ tweets<-searchTwitter('biodiversity+conservation OR biodiversity+protect OR bee+protect OR species+protect OR species+conservation -filter:retweets',n=2500, lang="en")
+
+ tweets.df <- twListToDF(tweets)
+  write.csv(tweets.df, "C:\\uoc\\TipoCicloDatos\\practica1\\tweets_3106\\tweets.csv")
+# Text parsing
+ library(tm)
+  myCorpus <- Corpus(VectorSource(tweets.df$text))
+  removeURL <- function(x) gsub("http[^[:space:]]*", "", x)
+  myCorpus <- tm_map(myCorpus, content_transformer(removeURL))
+  removeNumPunct <- function(x) gsub("[^[:alpha:][:space:]]*", "", x)
+  myCorpus <- tm_map(myCorpus, content_transformer(removeNumPunct))
+  myCorpus <- tm_map(myCorpus, stripWhitespace)
+  myStopwords <- c(setdiff(stopwords('english'), c("biodiversity", "protect","conservation)),
+                   "use", "see", "used", "via", "amp","a","the","i","you","we","for","among","at","us","can","cant","be","will")
+ myCorpus <- tm_map(myCorpus, removeWords, myStopwords)
+ myCorpus <- tm_map(myCorpus, content_transformer(tolower))
+# Term Document Matrix
+ tdm <- TermDocumentMatrix(myCorpus,
+control = list(wordLengths = c(1, Inf)))
+ tdm
+
+# Análisis de frecuencia de términos
+ (freq.terms <- findFreqTerms(tdm, lowfreq = 50))
+ term.freq <- rowSums(as.matrix(tdm))
+ term.freq <- subset(term.freq, term.freq >= 50)
+ df <- data.frame(term = names(term.freq), freq = term.freq)
+ library(ggplot2)
+ ggplot(df, aes(x=term, y=freq)) + geom_bar(stat="identity") +
+xlab("Terms") + ylab("Count") + coord_flip() +
+theme(axis.text=element_text(size=7))
+# WordCloud representación 
+ m <- as.matrix(tdm)
+ word.freq <- sort(rowSums(m), decreasing = T)
+ library(wordcloud)
+ pal <- brewer.pal(9, "BuGn")[-(1:4)]
+ wordcloud(words = names(word.freq), freq = word.freq, min.freq = 25,
+random.order = F, colors = pal)
+
+# Topic modelling
+
+ dtm <- as.DocumentTermMatrix(tdm)
+ library(topicmodels)
+ lda <- LDA(dtm, k = 15) # find 15 topics
+ term <- terms(lda, 7) # first 10 terms of every topic
+( term <- apply(term, MARGIN = 2, paste, collapse = ", "))
+
+ topics <- topics(lda) # 1st topic identified for every document (tweet)
+ topics <- data.frame(date=as.Date.character(tweets.df$created), topic=topics)
+ ggplot(topics, aes(date, fill = term[topic])) +
+geom_density(position = "stack")
+
+
+# Clustering 
+
+ tdm2 <- removeSparseTerms(tdm, sparse = 0.95)
+ m2 <- as.matrix(tdm2)
+ m3 <- t(m2) # transpose the matrix to cluster documents (tweets)
+ set.seed(122) # set a fixed random seed
+ k <- 15 # number of clusters
+ kmeansResult <- kmeans(m3, k)
+ round(kmeansResult$centers, digits = 3)
+ for (i in 1:k) {
+ cat(paste("cluster ", i, ": ", sep = ""))
+ s <- sort(kmeansResult$centers[i, ], decreasing = T)
+ cat(names(s)[1:5], "nn")
+  print(tweets[which(kmeansResult$cluster==i)])
+ }
+
+# Funciones auxiliares
+# count word frequence
+wordFreq <- function(corpus, word) {
+results <- lapply(corpus,
+ function(x) { grep(as.character(x), pattern=paste0("nn<",word)) }
+ )
+ sum(unlist(results))
+ }
